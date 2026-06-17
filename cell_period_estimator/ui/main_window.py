@@ -153,6 +153,15 @@ class MainWindow(QMainWindow):
         pl.setContentsMargins(12, 12, 12, 12)
         pl.setSpacing(12)
 
+        # Hero CTA: the primary action sits right above the results it fills in,
+        # so the flow reads top-to-bottom (press → read).  Shares act_estimate
+        # with the toolbar button; both are enabled/disabled together.
+        self.btn_estimate = QPushButton("Estimate Period")
+        self.btn_estimate.setProperty("variant", "primary")
+        self.btn_estimate.setMinimumHeight(40)
+        self.btn_estimate.clicked.connect(self._on_estimate)
+        pl.addWidget(self.btn_estimate)
+
         pl.addWidget(self._build_period_box())
         pl.addWidget(self._build_gc_box())
         pl.addWidget(self._build_spectrum_box())
@@ -382,11 +391,16 @@ class MainWindow(QMainWindow):
         self.view.clear_roi()
         self.statusBar().showMessage("ROI cleared.")
 
+    def _set_estimate_enabled(self, enabled: bool) -> None:
+        """Toolbar action and panel hero button track the same busy state."""
+        self.act_estimate.setEnabled(enabled)
+        self.btn_estimate.setEnabled(enabled)
+
     def _on_estimate(self) -> None:
         if self._image is None:
             return
         self._refresh_analysis_image()
-        self.act_estimate.setEnabled(False)
+        self._set_estimate_enabled(False)
         self.statusBar().showMessage("Estimating period…")
 
         self._thread = QThread()
@@ -401,12 +415,12 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _on_estimate_failed(self, message: str) -> None:
-        self.act_estimate.setEnabled(True)
+        self._set_estimate_enabled(True)
         QMessageBox.critical(self, "Estimation error", message)
         self.statusBar().showMessage("Estimation failed.")
 
     def _on_estimate_done(self, result) -> None:
-        self.act_estimate.setEnabled(True)
+        self._set_estimate_enabled(True)
         self._result = result
         self.badge.set_mode(result.axis_mode)
         self.spin_px.setValue(result.px or 0)

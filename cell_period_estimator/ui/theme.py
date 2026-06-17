@@ -203,6 +203,9 @@ QPushButton[variant="primary"] {
 }
 QPushButton[variant="primary"]:hover { background: $accent_hover; }
 QPushButton[variant="primary"]:pressed { background: $accent_active; }
+QPushButton[variant="primary"]:disabled {
+    background: $disabled_bg; color: $disabled_text; border: 1px solid $border_default;
+}
 QPushButton[variant="secondary"] {
     background: $bg_input; color: $accent_active; border: 1px solid $accent;
 }

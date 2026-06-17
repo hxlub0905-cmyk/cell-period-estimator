@@ -192,20 +192,41 @@ class ImageView(QGraphicsView):
         if not w_img:
             return
         ox, oy = self._grid_origin
-        grid = QColor(TOKENS["accent"])
-        grid.setAlpha(150)
-        pen = QPen(grid, 0)
-        painter.setPen(pen)
-        if self._grid_px and self._grid_px > 1:
-            x = ox
-            while x <= w_img:
+
+        # Collect the line geometry once, then stroke it twice: a dark halo
+        # underneath for contrast on bright cells, the accent line on top for
+        # contrast on dark cells.  Cosmetic pens keep the width constant at any
+        # zoom so the grid never disappears or turns into fat bars.
+        xs = (list(range(ox, w_img + 1, self._grid_px))
+              if self._grid_px and self._grid_px > 1 else [])
+        ys = (list(range(oy, h_img + 1, self._grid_py))
+              if self._grid_py and self._grid_py > 1 else [])
+
+        def stroke(color: QColor, width: float) -> None:
+            pen = QPen(color, width)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            for x in xs:
                 painter.drawLine(QPointF(x, 0), QPointF(x, h_img))
-                x += self._grid_px
-        if self._grid_py and self._grid_py > 1:
-            y = oy
-            while y <= h_img:
+            for y in ys:
                 painter.drawLine(QPointF(0, y), QPointF(w_img, y))
-                y += self._grid_py
+
+        halo = QColor(TOKENS["text_primary"])
+        halo.setAlpha(140)
+        stroke(halo, 3.0)
+        accent = QColor(TOKENS["accent"])
+        accent.setAlpha(235)
+        stroke(accent, 1.2)
+
+        # Mark the lattice origin so the phase of the grid is unambiguous.
+        marker = QColor(TOKENS["accent_active"])
+        pen = QPen(marker, 2.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        r = 5.0
+        painter.drawLine(QPointF(ox - r, oy), QPointF(ox + r, oy))
+        painter.drawLine(QPointF(ox, oy - r), QPointF(ox, oy + r))
 
 
 # --------------------------------------------------------------------------- #
