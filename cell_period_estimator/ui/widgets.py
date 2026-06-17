@@ -52,6 +52,21 @@ def numpy_to_qpixmap(array: np.ndarray) -> QPixmap:
     return QPixmap.fromImage(numpy_to_qimage(array))
 
 
+def qimage_to_gray(image: QImage) -> Optional[np.ndarray]:
+    """Convert a QImage (e.g. from the clipboard) to a grey (H,W) uint8 array.
+
+    Returns ``None`` for a null image.  Used by the paste / drag-drop paths so
+    a pasted screenshot is treated like any loaded scan.
+    """
+    if image.isNull():
+        return None
+    img = image.convertToFormat(QImage.Format_Grayscale8)
+    w, h, bpl = img.width(), img.height(), img.bytesPerLine()
+    buf = bytes(img.constBits())[: bpl * h]
+    arr = np.frombuffer(buf, dtype=np.uint8).reshape(h, bpl)[:, :w]
+    return np.ascontiguousarray(arr)
+
+
 # --------------------------------------------------------------------------- #
 # image view with ROI + period overlay
 # --------------------------------------------------------------------------- #
