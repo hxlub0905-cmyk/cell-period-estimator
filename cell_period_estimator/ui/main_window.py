@@ -92,7 +92,6 @@ class MainWindow(QMainWindow):
         tb.setMovable(False)
 
         self.act_load = QAction("Load Image", self)
-        self.act_estimate = QAction("Estimate Period", self)
         self.act_crop = QAction("Crop ROI", self, checkable=True)
         self.act_clear = QAction("Clear ROI", self)
         self.act_export_gc = QAction("Export GC", self)
@@ -102,34 +101,27 @@ class MainWindow(QMainWindow):
         self.act_load.setToolTip(
             "Open an EBeam scan image (PNG/TIFF/JPG/BMP)\n"
             "You can also drag a file onto the window or press Ctrl+V to paste")
-        self.act_estimate.setToolTip("Estimate the repeating cell period (px, py)")
         self.act_crop.setToolTip("Drag a rectangle to limit analysis to a region")
         self.act_clear.setToolTip("Remove the current ROI and analyse the full image")
         self.act_export_gc.setToolTip("Save the stacked Golden Cell as a PNG")
         self.act_export_json.setToolTip("Save period / ROI / confidence metadata as JSON")
 
         self.act_load.triggered.connect(self._on_load)
-        self.act_estimate.triggered.connect(self._on_estimate)
         self.act_crop.toggled.connect(self._on_crop_toggle)
         self.act_clear.triggered.connect(self._on_clear_roi)
         self.act_export_gc.triggered.connect(self._on_export_gc)
         self.act_export_json.triggered.connect(self._on_export_json)
 
-        # Grouped by intent: File | Analysis | Export.  Separators make the
-        # primary action (Estimate) read as the centre of gravity.
+        # Grouped by intent: File | Analysis | Export.  "Estimate Period" is the
+        # primary action and lives as a full-width hero button atop the results
+        # column (built in _build_layout), not on the toolbar.
         tb.addAction(self.act_load)
         tb.addSeparator()
-        tb.addAction(self.act_estimate)
         tb.addAction(self.act_crop)
         tb.addAction(self.act_clear)
         tb.addSeparator()
         tb.addAction(self.act_export_gc)
         tb.addAction(self.act_export_json)
-
-        # "Estimate Period" is the single key action -> primary accent button.
-        estimate_btn = tb.widgetForAction(self.act_estimate)
-        if estimate_btn is not None:
-            estimate_btn.setObjectName("primary")
 
         # Ctrl+V pastes an image (or image file) from the clipboard.  Window-wide
         # shortcut, no toolbar button — the gesture is the discoverable part.
@@ -153,9 +145,8 @@ class MainWindow(QMainWindow):
         pl.setContentsMargins(12, 12, 12, 12)
         pl.setSpacing(12)
 
-        # Hero CTA: the primary action sits right above the results it fills in,
-        # so the flow reads top-to-bottom (press → read).  Shares act_estimate
-        # with the toolbar button; both are enabled/disabled together.
+        # Hero CTA: the single primary action sits right above the results it
+        # fills in, so the flow reads top-to-bottom (press → read).
         self.btn_estimate = QPushButton("Estimate Period")
         self.btn_estimate.setProperty("variant", "primary")
         self.btn_estimate.setMinimumHeight(40)
@@ -392,8 +383,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("ROI cleared.")
 
     def _set_estimate_enabled(self, enabled: bool) -> None:
-        """Toolbar action and panel hero button track the same busy state."""
-        self.act_estimate.setEnabled(enabled)
+        """Toggle the hero Estimate button (e.g. disable while a run is busy)."""
         self.btn_estimate.setEnabled(enabled)
 
     def _on_estimate(self) -> None:

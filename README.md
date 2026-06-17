@@ -57,7 +57,7 @@ cell-period-estimator
 2. **Crop ROI** *(可選)* — 勾選 Crop ROI 並拖出一個矩形，把分析限制在乾淨的
    週期區域；用 **Clear ROI** 重置。
 3. **Estimate Period** — 在背景執行緒執行；結果會填入 X/Y 週期 spinbox 與
-   confidence。這顆主要按鈕同時出現在工具列與右側結果欄頂端。
+   confidence。這顆橙色主按鈕位於右側結果欄頂端。
 4. **看軸向徽章 / FFT 頻譜** — 確認偵測到的軸向模式，以及頻譜峰落在預期的週期上。
 5. **用 Golden Cell 驗證** — 檢視堆疊出的 cell 及其銳利度 / 疊影判定；依需要切換
    `mean`/`median` 與取樣數。用 **Auto-optimize ±** 吸附到最銳利的週期。
@@ -83,11 +83,13 @@ cell-period-estimator
 | 按鈕 | 功能 |
 |---|---|
 | **Load Image** | 開啟 PNG/TIFF/JPG/BMP，以灰階讀入。 |
-| **Estimate Period** *(主要、橙色)* | 在背景執行緒估測整張影像（或 ROI）的週期。工具列與結果欄頂端各有一顆，共用同一動作。 |
 | **Crop ROI** *(切換)* | 拖出橡皮筋矩形以限制分析範圍；發出影像座標的 `(x, y, w, h)`。 |
 | **Clear ROI** | 移除 ROI，重新分析整張影像。 |
 | **Export GC** | 將目前的 Golden Cell 堆疊存成 PNG。 |
 | **Export JSON** | 存出中繼資料：`px/py, roi, axis_mode, confidence, score`。 |
+
+> **Estimate Period**（主要、橙色）不在工具列上——它是右側結果欄頂端那顆全寬
+> 主按鈕，在背景執行緒估測整張影像（或 ROI）的週期。
 
 ### PERIOD 面板
 
