@@ -33,6 +33,7 @@ from ..core import (
     refine_period,
     stack_cells,
 )
+from .theme import TOKENS as THEME
 from .widgets import AxisBadge, CandidateGrid, ImageView, SpectrumPlot
 
 
@@ -97,6 +98,11 @@ class MainWindow(QMainWindow):
                     self.act_clear, self.act_export_gc, self.act_export_json):
             tb.addAction(act)
 
+        # "Estimate Period" is the single key action -> primary accent button.
+        estimate_btn = tb.widgetForAction(self.act_estimate)
+        if estimate_btn is not None:
+            estimate_btn.setObjectName("primary")
+
     def _build_layout(self) -> None:
         splitter = QSplitter(Qt.Horizontal)
 
@@ -108,7 +114,7 @@ class MainWindow(QMainWindow):
         pl = QVBoxLayout(panel)
 
         # --- period results ------------------------------------------- #
-        period_box = QGroupBox("Period")
+        period_box = QGroupBox("PERIOD")
         form = QFormLayout(period_box)
         self.badge = AxisBadge()
         self.spin_px = QSpinBox(); self.spin_px.setRange(0, 100000)
@@ -119,6 +125,7 @@ class MainWindow(QMainWindow):
         self.spin_opt = QSpinBox(); self.spin_opt.setRange(0, 64)
         self.spin_opt.setValue(6)
         self.btn_optimize = QPushButton("Auto-optimize ±")
+        self.btn_optimize.setProperty("variant", "secondary")
         self.btn_optimize.clicked.connect(self._on_optimize)
 
         form.addRow("Axis mode", self.badge)
@@ -134,7 +141,7 @@ class MainWindow(QMainWindow):
         pl.addWidget(period_box)
 
         # --- golden cell preview -------------------------------------- #
-        gc_box = QGroupBox("Golden Cell")
+        gc_box = QGroupBox("GOLDEN CELL")
         gl = QVBoxLayout(gc_box)
         ctrl = QHBoxLayout()
         self.cmb_method = QComboBox(); self.cmb_method.addItems(["mean", "median"])
@@ -148,7 +155,9 @@ class MainWindow(QMainWindow):
         self.lbl_gc = QLabel("Estimate a period to preview the Golden Cell.")
         self.lbl_gc.setAlignment(Qt.AlignCenter)
         self.lbl_gc.setMinimumHeight(160)
-        self.lbl_gc.setStyleSheet("background:#101418; color:#9aa6ad;")
+        self.lbl_gc.setStyleSheet(
+            f"background:{THEME['bg_panel']}; color:{THEME['text_hint']};"
+            f"border:1px solid {THEME['border_default']}; border-radius:6px;")
         gl.addWidget(self.lbl_gc)
         self.lbl_sharp = QLabel("sharpness: –")
         self.lbl_sharp.setAlignment(Qt.AlignCenter)
@@ -156,14 +165,14 @@ class MainWindow(QMainWindow):
         pl.addWidget(gc_box)
 
         # --- spectrum ------------------------------------------------- #
-        spec_box = QGroupBox("FFT Spectrum")
+        spec_box = QGroupBox("FFT SPECTRUM")
         sl = QVBoxLayout(spec_box)
         self.spectrum = SpectrumPlot()
         sl.addWidget(self.spectrum)
         pl.addWidget(spec_box)
 
         # --- candidates ----------------------------------------------- #
-        cand_box = QGroupBox("Candidates")
+        cand_box = QGroupBox("CANDIDATES")
         cl = QVBoxLayout(cand_box)
         self.candidates = CandidateGrid()
         self.candidates.candidateChosen.connect(self._on_candidate_chosen)

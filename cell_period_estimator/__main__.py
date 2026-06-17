@@ -10,8 +10,10 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     from .ui import MainWindow
+    from .ui.theme import apply_theme
 
     app = QApplication.instance() or QApplication(sys.argv)
+    apply_theme(app)
     window = MainWindow()
     window.show()
     return app.exec()

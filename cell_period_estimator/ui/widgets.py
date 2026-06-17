@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .theme import TOKENS
+
 
 # --------------------------------------------------------------------------- #
 # numpy <-> Qt conversion
@@ -162,9 +164,11 @@ class ImageView(QGraphicsView):
         if self._show_grid:
             self._draw_grid(painter)
         if self._rubber_rect is not None:
-            pen = QPen(QColor(0, 200, 255), 0, Qt.DashLine)
+            sel = QColor(TOKENS["selection"])
+            sel.setAlpha(60)
+            pen = QPen(QColor(TOKENS["accent"]), 0, Qt.DashLine)
             painter.setPen(pen)
-            painter.setBrush(QColor(0, 200, 255, 40))
+            painter.setBrush(sel)
             painter.drawRect(self._rubber_rect)
 
     def _draw_grid(self, painter: QPainter) -> None:
@@ -172,7 +176,9 @@ class ImageView(QGraphicsView):
         if not w_img:
             return
         ox, oy = self._grid_origin
-        pen = QPen(QColor(255, 80, 80, 160), 0)
+        grid = QColor(TOKENS["accent"])
+        grid.setAlpha(150)
+        pen = QPen(grid, 0)
         painter.setPen(pen)
         if self._grid_px and self._grid_px > 1:
             x = ox
@@ -190,13 +196,18 @@ class ImageView(QGraphicsView):
 # axis-mode badge
 # --------------------------------------------------------------------------- #
 class AxisBadge(QLabel):
-    """Coloured badge reflecting the detected axis mode."""
+    """Soft semantic chip reflecting the detected axis mode."""
 
-    _COLORS = {
-        "XY": ("#1b7f3b", "XY periodic"),
-        "X": ("#b8860b", "X only"),
-        "Y": ("#b8860b", "Y only"),
-        "NONE": ("#a31515", "no period"),
+    # (background, text, border, label) — low-saturation semantic chips.
+    _STYLES = {
+        "XY": (TOKENS["success_bg"], TOKENS["success_text"],
+               TOKENS["success_border"], "XY periodic"),
+        "X": (TOKENS["min_accent_bg"], TOKENS["min_accent_text"],
+              TOKENS["min_accent_border"], "X only"),
+        "Y": (TOKENS["min_accent_bg"], TOKENS["min_accent_text"],
+              TOKENS["min_accent_border"], "Y only"),
+        "NONE": (TOKENS["danger_bg"], TOKENS["danger"],
+                 TOKENS["danger"], "no period"),
     }
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -206,11 +217,11 @@ class AxisBadge(QLabel):
         self.set_mode("NONE")
 
     def set_mode(self, mode: str) -> None:
-        color, text = self._COLORS.get(mode, self._COLORS["NONE"])
+        bg, fg, border, text = self._STYLES.get(mode, self._STYLES["NONE"])
         self.setText(f"{mode}  •  {text}")
         self.setStyleSheet(
-            f"background:{color}; color:white; border-radius:6px;"
-            "padding:4px 10px; font-weight:bold;"
+            f"background:{bg}; color:{fg}; border:1px solid {border};"
+            "border-radius:6px; padding:4px 10px; font-weight:700;"
         )
 
 
@@ -240,20 +251,22 @@ class SpectrumPlot(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#101418"))
+        painter.fillRect(self.rect(), QColor(TOKENS["bg_panel"]))
         painter.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
         mid = h // 2
-        self._plot_axis(painter, self._x, 0, mid, QColor("#46c8ff"), "X")
-        self._plot_axis(painter, self._y, mid, h, QColor("#ffb347"), "Y")
-        painter.setPen(QPen(QColor("#39424a"), 1))
+        # X uses the single accent; Y uses the cool semantic marker so the
+        # two series stay distinguishable without a second accent hue.
+        self._plot_axis(painter, self._x, 0, mid, QColor(TOKENS["accent"]), "X")
+        self._plot_axis(painter, self._y, mid, h, QColor(TOKENS["max_accent"]), "Y")
+        painter.setPen(QPen(QColor(TOKENS["border_default"]), 1))
         painter.drawLine(0, mid, w, mid)
 
     def _plot_axis(self, painter, data, top, bottom, color, label):
-        painter.setPen(QPen(QColor("#9aa6ad"), 1))
+        painter.setPen(QPen(QColor(TOKENS["text_secondary"]), 1))
         painter.drawText(6, top + 14, f"{label} spectrum")
         if data is None:
-            painter.setPen(QPen(QColor("#5a646b"), 1))
+            painter.setPen(QPen(QColor(TOKENS["text_disabled"]), 1))
             painter.drawText(60, (top + bottom) // 2, "(no period)")
             return
         periods, mag, peak = data
@@ -274,7 +287,7 @@ class SpectrumPlot(QWidget):
             prev = (xpix, ypix)
         if peak:
             xpix = int((peak - pmin) / span * (w - 12)) + 6
-            painter.setPen(QPen(QColor("#ffffff"), 1, Qt.DashLine))
+            painter.setPen(QPen(QColor(TOKENS["accent_active"]), 1, Qt.DashLine))
             painter.drawLine(xpix, top + 18, xpix, base)
             painter.drawText(min(xpix + 3, w - 40), top + 28, f"p={peak:.0f}")
 
@@ -335,13 +348,17 @@ class _CandidateCell(QWidget):
         thumb.setAlignment(Qt.AlignCenter)
         caption = QLabel(f"{px}×{py}\n{sharpness:.0f}%")
         caption.setAlignment(Qt.AlignCenter)
+        caption.setStyleSheet(
+            f"color:{TOKENS['text_secondary']}; font-size:11px; border:0;")
         layout.addWidget(thumb)
         layout.addWidget(caption)
 
-        border = "#1b7f3b" if highlight else "#39424a"
-        width = 3 if highlight else 1
+        # Best candidate gets the accent border; others a default thin border.
+        border = TOKENS["accent"] if highlight else TOKENS["border_default"]
+        width = 2 if highlight else 1
+        bg = TOKENS["accent_bg"] if highlight else TOKENS["bg_surface"]
         self.setStyleSheet(
-            f"border:{width}px solid {border}; border-radius:6px;")
+            f"background:{bg}; border:{width}px solid {border}; border-radius:6px;")
 
     def mousePressEvent(self, event):
         self.chosen.emit(int(self._px), int(self._py))
