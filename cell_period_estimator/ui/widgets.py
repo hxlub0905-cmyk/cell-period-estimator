@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QFrame,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
@@ -193,6 +194,46 @@ class ImageView(QGraphicsView):
 
 
 # --------------------------------------------------------------------------- #
+# headline stat readout card
+# --------------------------------------------------------------------------- #
+class StatCard(QFrame):
+    """A compact "headline number" card: small title, big value, sub-caption.
+
+    Styling lives in the QSS (object names ``statCard`` / ``statTitle`` /
+    ``statValue`` / ``statSub``) so colors stay in the single token source.
+    The ``accent`` dynamic property promotes one card to the primary hue.
+    """
+
+    def __init__(self, title: str, accent: bool = False,
+                 parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setObjectName("statCard")
+        self.setProperty("accent", "true" if accent else "false")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 8, 12, 8)
+        lay.setSpacing(1)
+
+        self._title = QLabel(title.upper())
+        self._title.setObjectName("statTitle")
+        self._value = QLabel("–")
+        self._value.setObjectName("statValue")
+        self._value.setProperty("accent", "true" if accent else "false")
+        self._sub = QLabel("")
+        self._sub.setObjectName("statSub")
+
+        lay.addWidget(self._title)
+        lay.addWidget(self._value)
+        lay.addWidget(self._sub)
+
+    def set_value(self, value: str, sub: str = "") -> None:
+        self._value.setText(value)
+        self._sub.setText(sub)
+        self._sub.setVisible(bool(sub))
+
+
+# --------------------------------------------------------------------------- #
 # axis-mode badge
 # --------------------------------------------------------------------------- #
 class AxisBadge(QLabel):
@@ -214,6 +255,7 @@ class AxisBadge(QLabel):
         super().__init__(parent)
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumWidth(110)
+        self.setMinimumHeight(34)
         self.set_mode("NONE")
 
     def set_mode(self, mode: str) -> None:
@@ -221,7 +263,7 @@ class AxisBadge(QLabel):
         self.setText(f"{mode}  •  {text}")
         self.setStyleSheet(
             f"background:{bg}; color:{fg}; border:1px solid {border};"
-            "border-radius:6px; padding:4px 10px; font-weight:700;"
+            "border-radius:8px; padding:6px 12px; font-weight:700; font-size:13px;"
         )
 
 

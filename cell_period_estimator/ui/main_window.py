@@ -13,12 +13,15 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QVBoxLayout,
@@ -33,8 +36,7 @@ from ..core import (
     refine_period,
     stack_cells,
 )
-from .theme import TOKENS as THEME
-from .widgets import AxisBadge, CandidateGrid, ImageView, SpectrumPlot
+from .widgets import AxisBadge, CandidateGrid, ImageView, SpectrumPlot, StatCard
 
 
 # --------------------------------------------------------------------------- #
@@ -87,6 +89,14 @@ class MainWindow(QMainWindow):
         self.act_export_gc = QAction("Export GC", self)
         self.act_export_json = QAction("Export JSON", self)
 
+        # Tooltips give each terse label some breathing room / discoverability.
+        self.act_load.setToolTip("Open an EBeam scan image (PNG/TIFF/JPG/BMP)")
+        self.act_estimate.setToolTip("Estimate the repeating cell period (px, py)")
+        self.act_crop.setToolTip("Drag a rectangle to limit analysis to a region")
+        self.act_clear.setToolTip("Remove the current ROI and analyse the full image")
+        self.act_export_gc.setToolTip("Save the stacked Golden Cell as a PNG")
+        self.act_export_json.setToolTip("Save period / ROI / confidence metadata as JSON")
+
         self.act_load.triggered.connect(self._on_load)
         self.act_estimate.triggered.connect(self._on_estimate)
         self.act_crop.toggled.connect(self._on_crop_toggle)
@@ -94,9 +104,16 @@ class MainWindow(QMainWindow):
         self.act_export_gc.triggered.connect(self._on_export_gc)
         self.act_export_json.triggered.connect(self._on_export_json)
 
-        for act in (self.act_load, self.act_estimate, self.act_crop,
-                    self.act_clear, self.act_export_gc, self.act_export_json):
-            tb.addAction(act)
+        # Grouped by intent: File | Analysis | Export.  Separators make the
+        # primary action (Estimate) read as the centre of gravity.
+        tb.addAction(self.act_load)
+        tb.addSeparator()
+        tb.addAction(self.act_estimate)
+        tb.addAction(self.act_crop)
+        tb.addAction(self.act_clear)
+        tb.addSeparator()
+        tb.addAction(self.act_export_gc)
+        tb.addAction(self.act_export_json)
 
         # "Estimate Period" is the single key action -> primary accent button.
         estimate_btn = tb.widgetForAction(self.act_estimate)
@@ -110,16 +127,58 @@ class MainWindow(QMainWindow):
         self.view.cropChanged.connect(self._on_crop_changed)
         splitter.addWidget(self.view)
 
+        # The results column can be taller than the window, so it lives inside
+        # a vertical scroll area (single column) instead of being squeezed.
         panel = QWidget()
+        panel.setObjectName("resultsPanel")
         pl = QVBoxLayout(panel)
+        pl.setContentsMargins(12, 12, 12, 12)
+        pl.setSpacing(12)
 
-        # --- period results ------------------------------------------- #
-        period_box = QGroupBox("PERIOD")
-        form = QFormLayout(period_box)
+        pl.addWidget(self._build_period_box())
+        pl.addWidget(self._build_gc_box())
+        pl.addWidget(self._build_spectrum_box())
+        pl.addWidget(self._build_candidates_box())
+        pl.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidget(panel)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setMinimumWidth(456)
+
+        splitter.addWidget(scroll)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        self.setCentralWidget(splitter)
+        self.statusBar().showMessage("Load an EBeam scan image to begin.")
+
+    # -- panel builders ------------------------------------------------- #
+    def _build_period_box(self) -> QGroupBox:
+        """Headline readout (axis badge + stat cards) plus fine-tune controls."""
+        box = QGroupBox("PERIOD")
+        v = QVBoxLayout(box)
+        v.setSpacing(10)
+
         self.badge = AxisBadge()
+        self.badge.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        v.addWidget(self.badge)
+
+        # Big headline numbers — read at a glance, with confidence as sub-text.
+        self.card_px = StatCard("X period", accent=True)
+        self.card_py = StatCard("Y period", accent=True)
+        cards = QHBoxLayout()
+        cards.setSpacing(8)
+        cards.addWidget(self.card_px)
+        cards.addWidget(self.card_py)
+        v.addLayout(cards)
+
+        # Fine-tune controls: editable px/py, min period, optimize.
         self.spin_px = QSpinBox(); self.spin_px.setRange(0, 100000)
         self.spin_py = QSpinBox(); self.spin_py.setRange(0, 100000)
-        self.lbl_conf = QLabel("–")
+        self.spin_px.valueChanged.connect(self._update_period_readout)
+        self.spin_py.valueChanged.connect(self._update_period_readout)
         self.spin_min = QSpinBox(); self.spin_min.setRange(0, 100000)
         self.spin_min.setValue(0); self.spin_min.setSpecialValueText("auto")
         self.spin_opt = QSpinBox(); self.spin_opt.setRange(0, 64)
@@ -128,64 +187,65 @@ class MainWindow(QMainWindow):
         self.btn_optimize.setProperty("variant", "secondary")
         self.btn_optimize.clicked.connect(self._on_optimize)
 
-        form.addRow("Axis mode", self.badge)
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
         form.addRow("X period", self.spin_px)
         form.addRow("Y period", self.spin_py)
-        form.addRow("Confidence", self.lbl_conf)
         form.addRow("Min period", self.spin_min)
         opt_row = QHBoxLayout()
         opt_row.addWidget(self.spin_opt)
-        opt_row.addWidget(self.btn_optimize)
+        opt_row.addWidget(self.btn_optimize, 1)
         opt_w = QWidget(); opt_w.setLayout(opt_row)
         form.addRow("Optimize range", opt_w)
-        pl.addWidget(period_box)
+        v.addLayout(form)
+        return box
 
-        # --- golden cell preview -------------------------------------- #
-        gc_box = QGroupBox("GOLDEN CELL")
-        gl = QVBoxLayout(gc_box)
+    def _build_gc_box(self) -> QGroupBox:
+        box = QGroupBox("GOLDEN CELL")
+        gl = QVBoxLayout(box)
+        gl.setSpacing(8)
         ctrl = QHBoxLayout()
         self.cmb_method = QComboBox(); self.cmb_method.addItems(["mean", "median"])
         self.cmb_method.currentTextChanged.connect(self._refresh_gc)
         self.cmb_samples = QComboBox()
         self.cmb_samples.addItems(["all", "16", "32", "64", "128"])
         self.cmb_samples.currentTextChanged.connect(self._refresh_gc)
-        ctrl.addWidget(QLabel("method")); ctrl.addWidget(self.cmb_method)
-        ctrl.addWidget(QLabel("samples")); ctrl.addWidget(self.cmb_samples)
+        ctrl.addWidget(QLabel("method")); ctrl.addWidget(self.cmb_method, 1)
+        ctrl.addWidget(QLabel("samples")); ctrl.addWidget(self.cmb_samples, 1)
         gl.addLayout(ctrl)
         self.lbl_gc = QLabel("Estimate a period to preview the Golden Cell.")
+        self.lbl_gc.setObjectName("gcPreview")
         self.lbl_gc.setAlignment(Qt.AlignCenter)
-        self.lbl_gc.setMinimumHeight(160)
-        self.lbl_gc.setStyleSheet(
-            f"background:{THEME['bg_panel']}; color:{THEME['text_hint']};"
-            f"border:1px solid {THEME['border_default']}; border-radius:6px;")
+        self.lbl_gc.setMinimumHeight(170)
         gl.addWidget(self.lbl_gc)
         self.lbl_sharp = QLabel("sharpness: –")
         self.lbl_sharp.setAlignment(Qt.AlignCenter)
         gl.addWidget(self.lbl_sharp)
-        pl.addWidget(gc_box)
+        return box
 
-        # --- spectrum ------------------------------------------------- #
-        spec_box = QGroupBox("FFT SPECTRUM")
-        sl = QVBoxLayout(spec_box)
+    def _build_spectrum_box(self) -> QGroupBox:
+        box = QGroupBox("FFT SPECTRUM")
+        sl = QVBoxLayout(box)
         self.spectrum = SpectrumPlot()
         sl.addWidget(self.spectrum)
-        pl.addWidget(spec_box)
+        return box
 
-        # --- candidates ----------------------------------------------- #
-        cand_box = QGroupBox("CANDIDATES")
-        cl = QVBoxLayout(cand_box)
+    def _build_candidates_box(self) -> QGroupBox:
+        box = QGroupBox("CANDIDATES")
+        cl = QVBoxLayout(box)
         self.candidates = CandidateGrid()
         self.candidates.candidateChosen.connect(self._on_candidate_chosen)
         cl.addWidget(self.candidates)
-        pl.addWidget(cand_box)
+        return box
 
-        pl.addStretch(1)
-        panel.setMinimumWidth(440)
-        splitter.addWidget(panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        self.setCentralWidget(splitter)
-        self.statusBar().showMessage("Load an EBeam scan image to begin.")
+    def _update_period_readout(self) -> None:
+        """Mirror the current px/py/confidence into the headline stat cards."""
+        px, py = self._current_pxpy()
+        res = self._result
+        cx = f"conf {res.confidence_x:.0f}%" if res and px else ""
+        cy = f"conf {res.confidence_y:.0f}%" if res and py else ""
+        self.card_px.set_value(f"{px} px" if px else "–", sub=cx)
+        self.card_py.set_value(f"{py} px" if py else "–", sub=cy)
 
     # -- helpers -------------------------------------------------------- #
     def _min_period(self) -> Optional[int]:
@@ -267,8 +327,7 @@ class MainWindow(QMainWindow):
         self.badge.set_mode(result.axis_mode)
         self.spin_px.setValue(result.px or 0)
         self.spin_py.setValue(result.py or 0)
-        self.lbl_conf.setText(
-            f"X {result.confidence_x:.0f}%   Y {result.confidence_y:.0f}%")
+        self._update_period_readout()
         self.spectrum.set_spectra(result.spectrum_x, result.spectrum_y)
         self.view.set_grid(result.px, result.py)
         self.view.show_grid(result.axis_mode != "NONE")
