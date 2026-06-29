@@ -1,225 +1,222 @@
 # Cell Period Estimator
 
-A PySide6 desktop tool that estimates the repeating **cell period** — the
-"Golden Cell" pitch — of semiconductor **EBeam scan** images, and supports
-**cell-to-cell** defect-detection workflows.
+一個 PySide6 桌面工具，用來估測半導體 **EBeam 掃描**影像中重複的 **cell 週期**
+——也就是「Golden Cell」節距——並支援 **cell-to-cell** 缺陷偵測流程。
 
-Given a scan of a regular array (memory cells, standard-cell rows, line/space
-gratings, …) it finds the horizontal/vertical repeat `(px, py)`, builds a
-stacked Golden Cell from every full cell in the field, and quantifies how well
-the period aligns so you can trust it before running cell-to-cell comparisons.
+給定一張規則陣列（記憶體 cell、標準單元列、line/space 光柵……）的掃描影像，
+它會找出水平/垂直的重複週期 `(px, py)`，用畫面中每一個完整 cell 堆疊出一張
+Golden Cell，並量化週期對齊的好壞，讓你在跑 cell-to-cell 比對之前就能信任它。
 
-> **The core idea:** if the period is right, every cell lines up and the stack
-> is **sharp**; if it's wrong, the cells drift and the stack **ghosts (blurs)**.
-> Sharpness is therefore used both to *verify* and to *refine* the period.
+> **核心概念：** 如果週期正確，每個 cell 都會對齊、堆疊結果**銳利**；如果週期
+> 錯誤，cell 會彼此漂移、堆疊結果**疊影（模糊）**。因此「銳利度」同時用來
+> *驗證* 與 *細修* 週期。
 
-## Features
+## 功能特色
 
-- **Robust period estimation** (pure NumPy/OpenCV core, no Qt dependency):
-  intensity-projection FFT for a coarse period, cross-checked and refined by
-  normalized autocorrelation with parabolic sub-pixel interpolation and
-  harmonic correction. A modulation gate suppresses false periods on flat
-  axes (e.g. the orthogonal axis of a line/space pattern).
-- **Axis-mode detection**: `X`, `Y`, `XY`, or `NONE`, shown as a colour badge.
-- **Golden Cell stacking**: `mean` (sensitive to phase error, exposes
-  ghosting) or `median` (robust to defects), with optional random sampling.
-- **Sharpness / ghosting score** to verify alignment (sharp stack → aligned,
-  blurred stack → wrong period).
-- **Auto-optimize** the period by scanning a neighbourhood for the sharpest
-  stack.
-- **FFT spectrum plot** and a **candidate comparison grid** (half/double
-  harmonics) so you can pick the right fundamental at a glance.
-- **Export** the Golden Cell as PNG and the metadata
-  (`period / roi / axis_mode / confidence / score`) as JSON.
-- **GLAS** soft warm-light UI theme (see [`docs`](#ui-theme)).
+- **穩健的週期估測**（純 NumPy/OpenCV 核心，不依賴 Qt）：以強度投影 FFT 取得
+  粗略週期，再用正規化自相關（搭配拋物線次像素內插與諧波修正）交叉驗證與細修。
+  調變閘會在平坦的軸上抑制假週期（例如 line/space 圖案的正交軸）。
+- **軸向模式偵測**：`X`、`Y`、`XY` 或 `NONE`，以彩色徽章顯示。
+- **Golden Cell 堆疊**：`mean`（對相位誤差敏感、會暴露疊影）或 `median`
+  （對缺陷穩健），可選擇隨機取樣。
+- **銳利度 / 疊影分數**用來驗證對齊（堆疊銳利 → 已對齊，堆疊模糊 → 週期錯誤）。
+- **Auto-optimize**：掃描鄰域、挑出最銳利的堆疊來自動最佳化週期。
+- **FFT 頻譜圖** 與 **候選比較網格**（半 / 倍諧波），讓你一眼挑出正確的基頻。
+- **匯出**：將 Golden Cell 存成 PNG，並把中繼資料
+  （`period / roi / axis_mode / confidence / score`）存成 JSON。
+- **GLAS** 柔和暖色淺色系 UI 主題（見 [`UI 主題`](#ui-主題)）。
 
-## Installation
+## 安裝
 
 ```bash
 pip install -r requirements.txt
-# or, to install as a package (provides the console entry point):
+# 或安裝為套件（會提供 console 進入點）：
 pip install .
 ```
 
-Requirements: `PySide6`, `opencv-python`, `numpy` (Python ≥ 3.9).
+需求：`PySide6`、`opencv-python`、`numpy`（Python ≥ 3.9）。
 
-## Launching
+## 啟動
 
 ```bash
 python -m cell_period_estimator
 ```
 
-If installed as a package, the console entry point is also available:
+若安裝為套件，也可使用 console 進入點：
 
 ```bash
 cell-period-estimator
 ```
 
-## Workflow
+## 操作流程
 
-1. **Load Image** — open an EBeam scan (PNG/TIFF/JPG/BMP, read as greyscale).
-2. **Crop ROI** *(optional)* — toggle Crop ROI and drag a rectangle to limit
-   analysis to a clean periodic region; **Clear ROI** to reset.
-3. **Estimate Period** — runs in a background thread; the result fills the
-   X/Y period spinboxes and confidence.
-4. **Read the axis badge / FFT spectrum** — confirm the detected axis mode and
-   that the spectrum peak sits on the expected period.
-5. **Verify with the Golden Cell** — inspect the stacked cell and its
-   sharpness/ghosting verdict; switch `mean`/`median` and sample count as
-   needed. Use **Auto-optimize ±** to snap to the sharpest period.
-6. **Compare candidates** — the candidate grid stacks half/double harmonics;
-   the sharpest is highlighted. Click any candidate to adopt it.
-7. **Export** — **Export GC** saves the Golden Cell PNG; **Export JSON** saves
-   `period / roi / axis_mode / confidence / score`.
+1. **載入影像** — 開啟一張 EBeam 掃描影像（PNG/TIFF/JPG/BMP，以灰階讀入）。
+   除了 **Load Image** 按鈕，你也可以**把檔案 / 圖片直接拖曳到視窗**，或用
+   **Ctrl+V** 貼上剪貼簿裡的影像或複製的圖檔。中文（非 ASCII）的檔名 / 路徑
+   也完全支援。
+2. **Crop ROI** *(可選)* — 勾選 Crop ROI 並拖出一個矩形，把分析限制在乾淨的
+   週期區域；用 **Clear ROI** 重置。
+3. **Estimate Period** — 在背景執行緒執行；結果會填入 X/Y 週期 spinbox 與
+   confidence。這顆橙色主按鈕位於右側結果欄頂端。
+4. **看軸向徽章 / FFT 頻譜** — 確認偵測到的軸向模式，以及頻譜峰落在預期的週期上。
+5. **用 Golden Cell 驗證** — 檢視堆疊出的 cell 及其銳利度 / 疊影判定；依需要切換
+   `mean`/`median` 與取樣數。用 **Auto-optimize ±** 吸附到最銳利的週期。
+6. **比較候選** — 候選網格會堆疊半 / 倍諧波，最銳利的會被標示；點任一候選即可採用。
+7. **匯出** — **Export GC** 存出 Golden Cell PNG；**Export JSON** 存出
+   `period / roi / axis_mode / confidence / score`。
 
-## Controls reference
+## 控制項參考
 
-### Toolbar
+### 載入影像的方式
 
-| Button | What it does |
+| 方式 | 說明 |
 |---|---|
-| **Load Image** | Open a PNG/TIFF/JPG/BMP; read as greyscale. |
-| **Estimate Period** *(primary, orange)* | Estimate the period of the full image (or ROI) on a background thread. |
-| **Crop ROI** *(toggle)* | Drag a rubber-band rectangle to restrict analysis; emits image-space `(x, y, w, h)`. |
-| **Clear ROI** | Drop the ROI and analyse the whole image again. |
-| **Export GC** | Save the current Golden Cell stack as PNG. |
-| **Export JSON** | Save metadata: `px/py, roi, axis_mode, confidence, score`. |
+| **Load Image 按鈕** | 開啟檔案對話框，選 PNG/TIFF/JPG/BMP。 |
+| **拖曳（Drag & Drop）** | 把影像檔或圖片直接拖進視窗。 |
+| **Ctrl+V 貼上** | 貼上剪貼簿裡的截圖 / 圖片，或複製的圖檔。 |
 
-### Period panel
+> 所有載入路徑都透過 `np.fromfile` + `cv2.imdecode` 讀取，因此**中文 / 非 ASCII
+> 的檔名與資料夾路徑都能正確載入**（這是某些平台上 `cv2.imread` 會失敗的情況）。
 
-- **Axis mode badge** — detected periodic direction (see below).
-- **X period / Y period** — measured `px / py`; editable spinboxes.
-- **Confidence** — per-axis 0–100, derived from autocorrelation strength.
-- **Min period** — lower bound on the search (`auto` ⇒ adaptive, floor 4 px);
-  raises the floor to avoid locking onto tiny noise periods.
-- **Optimize range (±N) + Auto-optimize ±** — scan a ±N neighbourhood around
-  the current `px/py` and keep the sharpest stack (ranked by **raw** Laplacian
-  variance, not the saturating 0–100 score).
+### 工具列
 
-### Golden Cell panel
+| 按鈕 | 功能 |
+|---|---|
+| **Load Image** | 開啟 PNG/TIFF/JPG/BMP，以灰階讀入。 |
+| **Crop ROI** *(切換)* | 拖出橡皮筋矩形以限制分析範圍；發出影像座標的 `(x, y, w, h)`。 |
+| **Clear ROI** | 移除 ROI，重新分析整張影像。 |
+| **Export GC** | 將目前的 Golden Cell 堆疊存成 PNG。 |
+| **Export JSON** | 存出中繼資料：`px/py, roi, axis_mode, confidence, score`。 |
 
-- **method** — `mean` (default; sensitive to phase error, *deliberately*
-  exposes ghosting) or `median` (robust to sparse defects).
-- **samples** — stack all cells, or a random subset (16/32/64/128) for speed.
-- **preview + sharpness** — the stacked cell plus a score and verdict
-  (`aligned` / `marginal` / `ghosting`).
+> **Estimate Period**（主要、橙色）不在工具列上——它是右側結果欄頂端那顆全寬
+> 主按鈕，在背景執行緒估測整張影像（或 ROI）的週期。
 
-## Reading the views
+### PERIOD 面板
 
-> There is **no brightness histogram** in this tool. The chart that looks like
-> one is the **FFT spectrum**.
+- **軸向模式徽章** — 偵測到的週期方向（見下表）。
+- **X period / Y period** — 量到的 `px / py`；上方為大字讀數卡（含 confidence
+  副標），下方為可編輯的 spinbox。
+- **Confidence** — 各軸 0–100，由自相關強度推得，顯示在讀數卡的副標。
+- **Min period** — 搜尋的下界（`auto` ⇒ 自適應，底限 4 px）；提高下界可避免鎖到
+  很小的雜訊週期。
+- **Optimize range (±N) + Auto-optimize ±** — 在目前 `px/py` 的 ±N 鄰域掃描，
+  保留最銳利的堆疊（依**原始** Laplacian 變異數排名，而非會飽和的 0–100 分數）。
 
-### FFT spectrum
+### Golden Cell 面板
 
-- **X axis = period (px)**, **Y axis = normalized magnitude (0–1)**.
-- **Orange line = X axis** spectrum, **blue line = Y axis** spectrum (blue is a
-  cool semantic marker, deliberately not a second accent hue).
-- **White dashed line = detected peak period** (`p=…`).
-- A sharp, prominent peak near your expected cell size ⇒ a clean period; a flat
-  trace ⇒ that axis has no period.
+- **method** — `mean`（預設；對相位誤差敏感、*刻意*暴露疊影）或 `median`
+  （對稀疏缺陷穩健）。
+- **samples** — 堆疊所有 cell，或隨機子集（16/32/64/128）以加速。
+- **preview + sharpness** — 堆疊出的 cell，加上分數與判定
+  （`aligned` / `marginal` / `ghosting`）。
 
-### Golden Cell preview
+## 如何閱讀各視圖
 
-- The mean/median of **every complete cell** stacked together.
-- **Sharp & clear ⇒ period correct** (cells aligned; noise averaged out,
-  features reinforced).
-- **Blurred / doubled ⇒ period wrong** (cells misaligned ⇒ ghosting).
-- The **sharpness score** quantifies this via Laplacian variance.
+> 這個工具裡**沒有亮度直方圖**。那張看起來像直方圖的圖其實是 **FFT 頻譜**。
 
-### Candidate grid
+### 影像視圖與週期格線
 
-- Harmonic neighbours of the primary: `px/2, 2px, py/2, 2py, half, double`.
-- Each is stacked and labelled with **relative sharpness %**; the sharpest is
-  **highlighted with the accent border**. Click a candidate to adopt it — handy
-  when the estimator locks onto a half/double harmonic.
+- 偵測到週期後，影像上會疊一層**週期格線**：橙色主線配**暗色描邊**，因此在
+  明亮與深色的 cell 上都看得清楚；線寬不隨縮放改變。
+- 左上角的小**十字標記**是晶格原點，讓格線的相位一目了然。
 
-### Axis-mode badge
+### FFT 頻譜
 
-| Badge | Colour | Meaning |
+- **X 軸 = 週期（px）**、**Y 軸 = 正規化幅度（0–1）**。
+- **橙線 = X 軸**頻譜，**藍線 = Y 軸**頻譜（藍是冷色語意標記，刻意不當作第二個
+  強調色）。
+- **白色虛線 = 偵測到的峰週期**（`p=…`）。
+- 在你預期的 cell 尺寸附近有銳利、突出的峰 ⇒ 乾淨的週期；平坦的曲線 ⇒ 該軸無週期。
+
+### Golden Cell 預覽
+
+- 把**每個完整 cell**取 mean/median 堆疊在一起。
+- **銳利清楚 ⇒ 週期正確**（cell 對齊；雜訊被平均掉、特徵被強化）。
+- **模糊 / 重影 ⇒ 週期錯誤**（cell 未對齊 ⇒ 疊影）。
+- **銳利度分數**用 Laplacian 變異數量化這一點。
+
+### 候選網格
+
+- 主要週期的諧波鄰居：`px/2, 2px, py/2, 2py, half, double`。
+- 每個都被堆疊並標上**相對銳利度 %**；最銳利的會以 **accent 邊框**標示。
+  點任一候選即可採用——當估測器鎖到半 / 倍諧波時很好用。
+
+### 軸向模式徽章
+
+| 徽章 | 顏色 | 意義 |
 |---|---|---|
-| **XY** | green | both axes periodic (typical 2-D cell array) |
-| **X** / **Y** | warm orange | only one axis periodic (e.g. vertical line/space ⇒ X only) |
-| **NONE** | red | no period detected |
+| **XY** | 綠 | 兩軸都有週期（典型的 2-D cell 陣列） |
+| **X** / **Y** | 暖橙 | 只有一軸有週期（例如垂直 line/space ⇒ 只有 X） |
+| **NONE** | 紅 | 未偵測到週期 |
 
-## How it works
+## 運作原理
 
-`estimate_period` processes the X and Y axes independently:
+`estimate_period` 會獨立處理 X 與 Y 軸：
 
-1. **Projection** — average brightness along the orthogonal axis → a 1-D
-   signal (intensity projection).
-2. **High-pass detrend** — subtract an edge-padded moving average (window ≈ ¼
-   of the length) to remove illumination gradients / boundary artefacts.
-3. **Modulation gate** — if the projection is nearly flat (std < 0.5) the axis
-   is declared non-periodic. This is why the Y axis of a vertical line/space
-   pattern returns `None`: every row is identical, so Y carries no variation,
-   and noise can't be normalized into a fake period.
-4. **FFT coarse estimate + autocorrelation refinement** — the rFFT peak in the
-   `[lo, hi]` band is a coarse candidate, but for rich cell content the FFT
-   peak often lands on a **harmonic** (e.g. true period 40 shows a strong peak
-   at 20). The **fundamental is decided by autocorrelation**: pick the
-   strongest *local maximum* in the lag band (which skips both the high-
-   correlation region near lag 0 and the harmonic dips), then refine to
-   sub-pixel with a parabolic fit.
-5. **Harmonic correction** — if `ac(2p) > 1.15·ac(p)` take `2p` (we found a
-   half); if `p` is even and `ac(p/2) ≥ 0.9·ac(p)` take `p/2` (we found a
-   double).
-6. **Confidence** = autocorrelation strength × 100.
+1. **投影（Projection）** — 沿正交軸平均亮度 → 一維訊號（強度投影）。
+2. **高通去趨勢（High-pass detrend）** — 減去邊緣補值的移動平均（視窗 ≈ 長度的
+   ¼）以移除照明梯度 / 邊界假影。
+3. **調變閘（Modulation gate）** — 若投影近乎平坦（std < 0.5），該軸判定為
+   非週期。這就是為什麼垂直 line/space 圖案的 Y 軸會回傳 `None`：每一列都相同，
+   Y 沒有變化，雜訊也無法被正規化成假週期。
+4. **FFT 粗估 + 自相關細修** — `[lo, hi]` 頻帶內的 rFFT 峰是粗略候選，但對內容
+   豐富的 cell，FFT 峰常落在**諧波**上（例如真實週期 40 在 20 處出現強峰）。
+   **基頻由自相關決定**：挑出 lag 頻帶內最強的*局部極大值*（這會跳過 lag 0
+   附近的高相關區與諧波低谷），再以拋物線擬合細修到次像素。
+5. **諧波修正** — 若 `ac(2p) > 1.15·ac(p)` 取 `2p`（找到的是一半）；若 `p`
+   為偶數且 `ac(p/2) ≥ 0.9·ac(p)` 取 `p/2`（找到的是一倍）。
+6. **Confidence** = 自相關強度 × 100。
 
-Verification & refinement (`core/stacking.py`):
+驗證與細修（`core/stacking.py`）：
 
-- `tile_coords` — top-left of every **complete** cell (the single source of
-  truth for cell placement).
-- `stack_cells` — average/median those cells into one Golden Cell.
-- `ghosting_score` — Laplacian variance ⇒ high when aligned, low when ghosted.
-- `refine_period` — neighbourhood scan keeping the highest **raw** Laplacian
-  variance (this powers Auto-optimize).
+- `tile_coords` — 每個**完整** cell 的左上角（cell 擺放的單一真實來源）。
+- `stack_cells` — 把這些 cell 取平均/中位數堆成一張 Golden Cell。
+- `ghosting_score` — Laplacian 變異數 ⇒ 對齊時高、疊影時低。
+- `refine_period` — 鄰域掃描，保留最高的**原始** Laplacian 變異數（這驅動
+  Auto-optimize）。
 
-In one line:
+一句話總結：
 
-> **project → detrend → FFT coarse + autocorrelation fundamental → stack into a
-> Golden Cell → use sharpness to verify / refine the period.**
+> **投影 → 去趨勢 → FFT 粗估 + 自相關定基頻 → 堆疊成 Golden Cell → 用銳利度
+> 驗證 / 細修週期。**
 
-## Project layout
+## 專案結構
 
 ```
 cell_period_estimator/
   __init__.py        # __version__
-  __main__.py        # entry point: apply theme, QApplication + MainWindow; main()
-  core/              # Qt-free algorithms
+  __main__.py        # 進入點：套用主題、QApplication + MainWindow；main()
+  core/              # 不含 Qt 的演算法
     period_core.py   # estimate_period, PeriodResult, AxisSpectrum, choose_origin
     stacking.py      # tile_coords, stack_cells, ghosting_score, refine_period,
                      # candidate_periods
   ui/
-    theme.py         # GLAS design tokens + QSS (apply_theme)
+    theme.py         # GLAS 設計 token + QSS（apply_theme）
     widgets.py       # ImageView, AxisBadge, SpectrumPlot, CandidateGrid, ...
     main_window.py   # MainWindow
 tests/
-  test_synthetic.py  # synthetic-image validation
+  test_synthetic.py  # 合成影像驗證
 ```
 
-For a deeper architecture / algorithm reference (and contributor notes), see
-[`CLAUDE.md`](CLAUDE.md).
+更深入的架構 / 演算法參考（以及貢獻者注意事項）請見 [`CLAUDE.md`](CLAUDE.md)。
 
-## UI theme
+## UI 主題
 
-The UI uses the **GLAS** soft warm-light theme. All design tokens live in
-`cell_period_estimator/ui/theme.py` (`TOKENS`) and feed both the QSS
-stylesheet and the custom-painted widgets, so colours never drift. Highlights:
-cream elevation backgrounds (no pure white page, no pure black text), a single
-caramel-orange accent (`#f29f4b`) used only for the primary action, focus rings
-and selection, soft semantic chips, and an 11px rounded scrollbar.
+UI 使用 **GLAS** 柔和暖色淺色系主題。所有設計 token 都放在
+`cell_period_estimator/ui/theme.py`（`TOKENS`），同時供 QSS 樣式表與自繪 widget
+使用，顏色永遠不會走樣。重點：奶油色的層次背景（不用純白頁面、不用純黑文字）、
+單一焦糖橙強調色（`#f29f4b`，只用於主要動作、focus ring 與選取）、柔和的語意
+晶片，以及 11px 的圓角捲軸。
 
-## Tests
+## 測試
 
-The core is validated on synthetic images (no display required):
+核心以合成影像驗證（不需要顯示）：
 
 ```bash
 python tests/test_synthetic.py
 ```
 
-It checks that an XY pattern is detected as `XY` with the correct `px/py`, that
-the correct period stacks sharper (higher Laplacian variance) than a wrong one,
-that refinement converges from a slightly-off seed, and that a 50%-duty
-vertical line/space pattern is detected as `X` only (`py = None`, `px ≈` pitch).
-The run prints `ALL CHECKS PASSED` on success. CI runs this on Python
-3.9 / 3.11 / 3.12.
+它會檢查：XY 圖案被偵測為 `XY` 且 `px/py` 正確、正確週期堆疊得比錯誤週期更銳利
+（Laplacian 變異數更高）、從略有偏差的起點細修能收斂，以及 50% 工作比的垂直
+line/space 圖案被偵測為只有 `X`（`py = None`、`px ≈` 節距）。執行成功會印出
+`ALL CHECKS PASSED`。CI 會在 Python 3.9 / 3.11 / 3.12 上跑這個。

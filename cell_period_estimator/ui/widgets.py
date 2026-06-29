@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QFrame,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
@@ -49,6 +50,21 @@ def numpy_to_qimage(array: np.ndarray) -> QImage:
 def numpy_to_qpixmap(array: np.ndarray) -> QPixmap:
     """Convert an array to a QPixmap."""
     return QPixmap.fromImage(numpy_to_qimage(array))
+
+
+def qimage_to_gray(image: QImage) -> Optional[np.ndarray]:
+    """Convert a QImage (e.g. from the clipboard) to a grey (H,W) uint8 array.
+
+    Returns ``None`` for a null image.  Used by the paste / drag-drop paths so
+    a pasted screenshot is treated like any loaded scan.
+    """
+    if image.isNull():
+        return None
+    img = image.convertToFormat(QImage.Format_Grayscale8)
+    w, h, bpl = img.width(), img.height(), img.bytesPerLine()
+    buf = bytes(img.constBits())[: bpl * h]
+    arr = np.frombuffer(buf, dtype=np.uint8).reshape(h, bpl)[:, :w]
+    return np.ascontiguousarray(arr)
 
 
 # --------------------------------------------------------------------------- #
@@ -176,20 +192,81 @@ class ImageView(QGraphicsView):
         if not w_img:
             return
         ox, oy = self._grid_origin
-        grid = QColor(TOKENS["accent"])
-        grid.setAlpha(150)
-        pen = QPen(grid, 0)
-        painter.setPen(pen)
-        if self._grid_px and self._grid_px > 1:
-            x = ox
-            while x <= w_img:
+
+        # Collect the line geometry once, then stroke it twice: a dark halo
+        # underneath for contrast on bright cells, the accent line on top for
+        # contrast on dark cells.  Cosmetic pens keep the width constant at any
+        # zoom so the grid never disappears or turns into fat bars.
+        xs = (list(range(ox, w_img + 1, self._grid_px))
+              if self._grid_px and self._grid_px > 1 else [])
+        ys = (list(range(oy, h_img + 1, self._grid_py))
+              if self._grid_py and self._grid_py > 1 else [])
+
+        def stroke(color: QColor, width: float) -> None:
+            pen = QPen(color, width)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            for x in xs:
                 painter.drawLine(QPointF(x, 0), QPointF(x, h_img))
-                x += self._grid_px
-        if self._grid_py and self._grid_py > 1:
-            y = oy
-            while y <= h_img:
+            for y in ys:
                 painter.drawLine(QPointF(0, y), QPointF(w_img, y))
-                y += self._grid_py
+
+        halo = QColor(TOKENS["text_primary"])
+        halo.setAlpha(140)
+        stroke(halo, 3.0)
+        accent = QColor(TOKENS["accent"])
+        accent.setAlpha(235)
+        stroke(accent, 1.2)
+
+        # Mark the lattice origin so the phase of the grid is unambiguous.
+        marker = QColor(TOKENS["accent_active"])
+        pen = QPen(marker, 2.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        r = 5.0
+        painter.drawLine(QPointF(ox - r, oy), QPointF(ox + r, oy))
+        painter.drawLine(QPointF(ox, oy - r), QPointF(ox, oy + r))
+
+
+# --------------------------------------------------------------------------- #
+# headline stat readout card
+# --------------------------------------------------------------------------- #
+class StatCard(QFrame):
+    """A compact "headline number" card: small title, big value, sub-caption.
+
+    Styling lives in the QSS (object names ``statCard`` / ``statTitle`` /
+    ``statValue`` / ``statSub``) so colors stay in the single token source.
+    The ``accent`` dynamic property promotes one card to the primary hue.
+    """
+
+    def __init__(self, title: str, accent: bool = False,
+                 parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setObjectName("statCard")
+        self.setProperty("accent", "true" if accent else "false")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 8, 12, 8)
+        lay.setSpacing(1)
+
+        self._title = QLabel(title.upper())
+        self._title.setObjectName("statTitle")
+        self._value = QLabel("–")
+        self._value.setObjectName("statValue")
+        self._value.setProperty("accent", "true" if accent else "false")
+        self._sub = QLabel("")
+        self._sub.setObjectName("statSub")
+
+        lay.addWidget(self._title)
+        lay.addWidget(self._value)
+        lay.addWidget(self._sub)
+
+    def set_value(self, value: str, sub: str = "") -> None:
+        self._value.setText(value)
+        self._sub.setText(sub)
+        self._sub.setVisible(bool(sub))
 
 
 # --------------------------------------------------------------------------- #
@@ -214,6 +291,7 @@ class AxisBadge(QLabel):
         super().__init__(parent)
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumWidth(110)
+        self.setMinimumHeight(34)
         self.set_mode("NONE")
 
     def set_mode(self, mode: str) -> None:
@@ -221,7 +299,7 @@ class AxisBadge(QLabel):
         self.setText(f"{mode}  •  {text}")
         self.setStyleSheet(
             f"background:{bg}; color:{fg}; border:1px solid {border};"
-            "border-radius:6px; padding:4px 10px; font-weight:700;"
+            "border-radius:8px; padding:6px 12px; font-weight:700; font-size:13px;"
         )
 
 

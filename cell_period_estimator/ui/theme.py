@@ -119,23 +119,56 @@ QToolBar QToolButton:checked {
 }
 QToolBar QToolButton#primary {
     background: $accent; color: #ffffff; border: 1px solid $accent_active;
+    padding: 6px 18px; font-weight: 700;
 }
 QToolBar QToolButton#primary:hover { background: $accent_hover; }
 QToolBar QToolButton#primary:pressed { background: $accent_active; }
-QToolBar::separator { background: $border_default; width: 1px; margin: 4px 4px; }
+QToolBar QToolButton#primary:disabled { background: $disabled_bg; color: $disabled_text;
+    border: 1px solid $border_default; }
+QToolBar::separator { background: $border_default; width: 1px; margin: 5px 6px; }
 
 /* -- status bar ------------------------------------------------------- */
 QStatusBar { background: $statusbar; color: $text_secondary;
              border-top: 1px solid $border_default; }
 QStatusBar::item { border: 0; }
 
+/* -- scroll area (right results column) ------------------------------- */
+QScrollArea { border: 0; background: transparent; }
+QScrollArea > QWidget > QWidget { background: transparent; }
+QWidget#resultsPanel { background: transparent; }
+
+/* -- stat readout cards ----------------------------------------------- */
+QFrame#statCard {
+    background: $bg_elevated;
+    border: 1px solid $border_default;
+    border-radius: 9px;
+}
+QFrame#statCard[accent="true"] {
+    background: $accent_bg;
+    border: 1px solid $accent_border;
+}
+QLabel#statTitle {
+    color: $text_secondary; font-size: 10px; font-weight: 700; background: transparent;
+}
+QLabel#statValue {
+    color: $text_primary; font-size: 23px; font-weight: 700; background: transparent;
+}
+QLabel#statValue[accent="true"] { color: $accent_active; }
+QLabel#statSub { color: $text_hint; font-size: 11px; background: transparent; }
+
+/* -- golden cell preview surface -------------------------------------- */
+QLabel#gcPreview {
+    background: $bg_panel; color: $text_hint;
+    border: 1px solid $border_default; border-radius: 8px;
+}
+
 /* -- group boxes (section cards) -------------------------------------- */
 QGroupBox {
     background: $bg_surface;
     border: 1px solid $border_default;
-    border-radius: 7px;
+    border-radius: 9px;
     margin-top: 16px;
-    padding: 10px 8px 8px 8px;
+    padding: 12px 10px 10px 10px;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
@@ -170,6 +203,9 @@ QPushButton[variant="primary"] {
 }
 QPushButton[variant="primary"]:hover { background: $accent_hover; }
 QPushButton[variant="primary"]:pressed { background: $accent_active; }
+QPushButton[variant="primary"]:disabled {
+    background: $disabled_bg; color: $disabled_text; border: 1px solid $border_default;
+}
 QPushButton[variant="secondary"] {
     background: $bg_input; color: $accent_active; border: 1px solid $accent;
 }

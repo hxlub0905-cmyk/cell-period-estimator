@@ -8,17 +8,21 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QImage, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QVBoxLayout,
@@ -33,8 +37,14 @@ from ..core import (
     refine_period,
     stack_cells,
 )
-from .theme import TOKENS as THEME
-from .widgets import AxisBadge, CandidateGrid, ImageView, SpectrumPlot
+from .widgets import (
+    AxisBadge,
+    CandidateGrid,
+    ImageView,
+    SpectrumPlot,
+    StatCard,
+    qimage_to_gray,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -64,6 +74,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Cell Period Estimator")
         self.resize(1280, 820)
+        self.setAcceptDrops(True)  # drag an image file/picture onto the window
 
         self._image: Optional[np.ndarray] = None        # full image (grey)
         self._analysis_image: Optional[np.ndarray] = None  # ROI or full
@@ -81,27 +92,43 @@ class MainWindow(QMainWindow):
         tb.setMovable(False)
 
         self.act_load = QAction("Load Image", self)
-        self.act_estimate = QAction("Estimate Period", self)
         self.act_crop = QAction("Crop ROI", self, checkable=True)
         self.act_clear = QAction("Clear ROI", self)
         self.act_export_gc = QAction("Export GC", self)
         self.act_export_json = QAction("Export JSON", self)
 
+        # Tooltips give each terse label some breathing room / discoverability.
+        self.act_load.setToolTip(
+            "Open an EBeam scan image (PNG/TIFF/JPG/BMP)\n"
+            "You can also drag a file onto the window or press Ctrl+V to paste")
+        self.act_crop.setToolTip("Drag a rectangle to limit analysis to a region")
+        self.act_clear.setToolTip("Remove the current ROI and analyse the full image")
+        self.act_export_gc.setToolTip("Save the stacked Golden Cell as a PNG")
+        self.act_export_json.setToolTip("Save period / ROI / confidence metadata as JSON")
+
         self.act_load.triggered.connect(self._on_load)
-        self.act_estimate.triggered.connect(self._on_estimate)
         self.act_crop.toggled.connect(self._on_crop_toggle)
         self.act_clear.triggered.connect(self._on_clear_roi)
         self.act_export_gc.triggered.connect(self._on_export_gc)
         self.act_export_json.triggered.connect(self._on_export_json)
 
-        for act in (self.act_load, self.act_estimate, self.act_crop,
-                    self.act_clear, self.act_export_gc, self.act_export_json):
-            tb.addAction(act)
+        # Grouped by intent: File | Analysis | Export.  "Estimate Period" is the
+        # primary action and lives as a full-width hero button atop the results
+        # column (built in _build_layout), not on the toolbar.
+        tb.addAction(self.act_load)
+        tb.addSeparator()
+        tb.addAction(self.act_crop)
+        tb.addAction(self.act_clear)
+        tb.addSeparator()
+        tb.addAction(self.act_export_gc)
+        tb.addAction(self.act_export_json)
 
-        # "Estimate Period" is the single key action -> primary accent button.
-        estimate_btn = tb.widgetForAction(self.act_estimate)
-        if estimate_btn is not None:
-            estimate_btn.setObjectName("primary")
+        # Ctrl+V pastes an image (or image file) from the clipboard.  Window-wide
+        # shortcut, no toolbar button — the gesture is the discoverable part.
+        self.act_paste = QAction("Paste Image", self)
+        self.act_paste.setShortcut(QKeySequence.Paste)
+        self.act_paste.triggered.connect(self._on_paste)
+        self.addAction(self.act_paste)
 
     def _build_layout(self) -> None:
         splitter = QSplitter(Qt.Horizontal)
@@ -110,16 +137,67 @@ class MainWindow(QMainWindow):
         self.view.cropChanged.connect(self._on_crop_changed)
         splitter.addWidget(self.view)
 
+        # The results column can be taller than the window, so it lives inside
+        # a vertical scroll area (single column) instead of being squeezed.
         panel = QWidget()
+        panel.setObjectName("resultsPanel")
         pl = QVBoxLayout(panel)
+        pl.setContentsMargins(12, 12, 12, 12)
+        pl.setSpacing(12)
 
-        # --- period results ------------------------------------------- #
-        period_box = QGroupBox("PERIOD")
-        form = QFormLayout(period_box)
+        # Hero CTA: the single primary action sits right above the results it
+        # fills in, so the flow reads top-to-bottom (press → read).
+        self.btn_estimate = QPushButton("Estimate Period")
+        self.btn_estimate.setProperty("variant", "primary")
+        self.btn_estimate.setMinimumHeight(40)
+        self.btn_estimate.clicked.connect(self._on_estimate)
+        pl.addWidget(self.btn_estimate)
+
+        pl.addWidget(self._build_period_box())
+        pl.addWidget(self._build_gc_box())
+        pl.addWidget(self._build_spectrum_box())
+        pl.addWidget(self._build_candidates_box())
+        pl.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidget(panel)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setMinimumWidth(456)
+
+        splitter.addWidget(scroll)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        self.setCentralWidget(splitter)
+        self.statusBar().showMessage(
+            "Load a scan to begin — click Load Image, drag a file in, or press Ctrl+V.")
+
+    # -- panel builders ------------------------------------------------- #
+    def _build_period_box(self) -> QGroupBox:
+        """Headline readout (axis badge + stat cards) plus fine-tune controls."""
+        box = QGroupBox("PERIOD")
+        v = QVBoxLayout(box)
+        v.setSpacing(10)
+
         self.badge = AxisBadge()
+        self.badge.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        v.addWidget(self.badge)
+
+        # Big headline numbers — read at a glance, with confidence as sub-text.
+        self.card_px = StatCard("X period", accent=True)
+        self.card_py = StatCard("Y period", accent=True)
+        cards = QHBoxLayout()
+        cards.setSpacing(8)
+        cards.addWidget(self.card_px)
+        cards.addWidget(self.card_py)
+        v.addLayout(cards)
+
+        # Fine-tune controls: editable px/py, min period, optimize.
         self.spin_px = QSpinBox(); self.spin_px.setRange(0, 100000)
         self.spin_py = QSpinBox(); self.spin_py.setRange(0, 100000)
-        self.lbl_conf = QLabel("–")
+        self.spin_px.valueChanged.connect(self._update_period_readout)
+        self.spin_py.valueChanged.connect(self._update_period_readout)
         self.spin_min = QSpinBox(); self.spin_min.setRange(0, 100000)
         self.spin_min.setValue(0); self.spin_min.setSpecialValueText("auto")
         self.spin_opt = QSpinBox(); self.spin_opt.setRange(0, 64)
@@ -128,64 +206,65 @@ class MainWindow(QMainWindow):
         self.btn_optimize.setProperty("variant", "secondary")
         self.btn_optimize.clicked.connect(self._on_optimize)
 
-        form.addRow("Axis mode", self.badge)
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
         form.addRow("X period", self.spin_px)
         form.addRow("Y period", self.spin_py)
-        form.addRow("Confidence", self.lbl_conf)
         form.addRow("Min period", self.spin_min)
         opt_row = QHBoxLayout()
         opt_row.addWidget(self.spin_opt)
-        opt_row.addWidget(self.btn_optimize)
+        opt_row.addWidget(self.btn_optimize, 1)
         opt_w = QWidget(); opt_w.setLayout(opt_row)
         form.addRow("Optimize range", opt_w)
-        pl.addWidget(period_box)
+        v.addLayout(form)
+        return box
 
-        # --- golden cell preview -------------------------------------- #
-        gc_box = QGroupBox("GOLDEN CELL")
-        gl = QVBoxLayout(gc_box)
+    def _build_gc_box(self) -> QGroupBox:
+        box = QGroupBox("GOLDEN CELL")
+        gl = QVBoxLayout(box)
+        gl.setSpacing(8)
         ctrl = QHBoxLayout()
         self.cmb_method = QComboBox(); self.cmb_method.addItems(["mean", "median"])
         self.cmb_method.currentTextChanged.connect(self._refresh_gc)
         self.cmb_samples = QComboBox()
         self.cmb_samples.addItems(["all", "16", "32", "64", "128"])
         self.cmb_samples.currentTextChanged.connect(self._refresh_gc)
-        ctrl.addWidget(QLabel("method")); ctrl.addWidget(self.cmb_method)
-        ctrl.addWidget(QLabel("samples")); ctrl.addWidget(self.cmb_samples)
+        ctrl.addWidget(QLabel("method")); ctrl.addWidget(self.cmb_method, 1)
+        ctrl.addWidget(QLabel("samples")); ctrl.addWidget(self.cmb_samples, 1)
         gl.addLayout(ctrl)
         self.lbl_gc = QLabel("Estimate a period to preview the Golden Cell.")
+        self.lbl_gc.setObjectName("gcPreview")
         self.lbl_gc.setAlignment(Qt.AlignCenter)
-        self.lbl_gc.setMinimumHeight(160)
-        self.lbl_gc.setStyleSheet(
-            f"background:{THEME['bg_panel']}; color:{THEME['text_hint']};"
-            f"border:1px solid {THEME['border_default']}; border-radius:6px;")
+        self.lbl_gc.setMinimumHeight(170)
         gl.addWidget(self.lbl_gc)
         self.lbl_sharp = QLabel("sharpness: –")
         self.lbl_sharp.setAlignment(Qt.AlignCenter)
         gl.addWidget(self.lbl_sharp)
-        pl.addWidget(gc_box)
+        return box
 
-        # --- spectrum ------------------------------------------------- #
-        spec_box = QGroupBox("FFT SPECTRUM")
-        sl = QVBoxLayout(spec_box)
+    def _build_spectrum_box(self) -> QGroupBox:
+        box = QGroupBox("FFT SPECTRUM")
+        sl = QVBoxLayout(box)
         self.spectrum = SpectrumPlot()
         sl.addWidget(self.spectrum)
-        pl.addWidget(spec_box)
+        return box
 
-        # --- candidates ----------------------------------------------- #
-        cand_box = QGroupBox("CANDIDATES")
-        cl = QVBoxLayout(cand_box)
+    def _build_candidates_box(self) -> QGroupBox:
+        box = QGroupBox("CANDIDATES")
+        cl = QVBoxLayout(box)
         self.candidates = CandidateGrid()
         self.candidates.candidateChosen.connect(self._on_candidate_chosen)
         cl.addWidget(self.candidates)
-        pl.addWidget(cand_box)
+        return box
 
-        pl.addStretch(1)
-        panel.setMinimumWidth(440)
-        splitter.addWidget(panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        self.setCentralWidget(splitter)
-        self.statusBar().showMessage("Load an EBeam scan image to begin.")
+    def _update_period_readout(self) -> None:
+        """Mirror the current px/py/confidence into the headline stat cards."""
+        px, py = self._current_pxpy()
+        res = self._result
+        cx = f"conf {res.confidence_x:.0f}%" if res and px else ""
+        cy = f"conf {res.confidence_y:.0f}%" if res and py else ""
+        self.card_px.set_value(f"{px} px" if px else "–", sub=cx)
+        self.card_py.set_value(f"{py} px" if py else "–", sub=cy)
 
     # -- helpers -------------------------------------------------------- #
     def _min_period(self) -> Optional[int]:
@@ -213,10 +292,29 @@ class MainWindow(QMainWindow):
             "Images (*.png *.tif *.tiff *.jpg *.jpeg *.bmp)")
         if not path:
             return
-        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        self._load_path(path)
+
+    def _load_path(self, path: str) -> bool:
+        """Load a grey image from ``path``.  Unicode-safe (handles CJK paths).
+
+        ``cv2.imread`` mangles non-ASCII paths on some platforms (notably
+        Windows), so we read the raw bytes with ``np.fromfile`` — which uses
+        Python's Unicode file API — and decode in memory with ``cv2.imdecode``.
+        """
+        try:
+            raw = np.fromfile(path, dtype=np.uint8)
+        except OSError as exc:
+            QMessageBox.warning(self, "Load failed", f"Could not open:\n{path}\n\n{exc}")
+            return False
+        img = cv2.imdecode(raw, cv2.IMREAD_GRAYSCALE) if raw.size else None
         if img is None:
             QMessageBox.warning(self, "Load failed", f"Could not read:\n{path}")
-            return
+            return False
+        self._set_loaded_image(img, path)
+        return True
+
+    def _set_loaded_image(self, img: np.ndarray, source: str) -> None:
+        """Common post-load bookkeeping shared by file/drop/paste paths."""
         self._image = img
         self._roi = None
         self._result = None
@@ -224,7 +322,53 @@ class MainWindow(QMainWindow):
         self.view.show_grid(False)
         self.candidates.clear()
         self.statusBar().showMessage(
-            f"Loaded {path}  ({img.shape[1]}×{img.shape[0]})")
+            f"Loaded {source}  ({img.shape[1]}×{img.shape[0]})")
+
+    # -- drag & drop / clipboard --------------------------------------- #
+    def dragEnterEvent(self, event) -> None:
+        md = event.mimeData()
+        if md.hasImage() or self._first_local_image(md) is not None:
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event) -> None:
+        md = event.mimeData()
+        if md.hasImage() or self._first_local_image(md) is not None:
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:
+        md = event.mimeData()
+        path = self._first_local_image(md)
+        if path is not None and self._load_path(path):
+            event.acceptProposedAction()
+            return
+        if md.hasImage():
+            img = qimage_to_gray(QImage(md.imageData()))
+            if img is not None:
+                self._set_loaded_image(img, "dropped image")
+                event.acceptProposedAction()
+
+    def _on_paste(self) -> None:
+        md = QApplication.clipboard().mimeData()
+        path = self._first_local_image(md)
+        if path is not None and self._load_path(path):
+            return
+        if md.hasImage():
+            img = qimage_to_gray(QApplication.clipboard().image())
+            if img is not None:
+                self._set_loaded_image(img, "clipboard image")
+                return
+        self.statusBar().showMessage("Clipboard has no image to paste.")
+
+    @staticmethod
+    def _first_local_image(mime) -> Optional[str]:
+        """Return the first local image-file path in a mime payload, else None."""
+        if not mime.hasUrls():
+            return None
+        exts = (".png", ".tif", ".tiff", ".jpg", ".jpeg", ".bmp")
+        for url in mime.urls():
+            if url.isLocalFile() and url.toLocalFile().lower().endswith(exts):
+                return url.toLocalFile()
+        return None
 
     def _on_crop_toggle(self, checked: bool) -> None:
         self.view.set_crop_mode(checked)
@@ -238,11 +382,15 @@ class MainWindow(QMainWindow):
         self.view.clear_roi()
         self.statusBar().showMessage("ROI cleared.")
 
+    def _set_estimate_enabled(self, enabled: bool) -> None:
+        """Toggle the hero Estimate button (e.g. disable while a run is busy)."""
+        self.btn_estimate.setEnabled(enabled)
+
     def _on_estimate(self) -> None:
         if self._image is None:
             return
         self._refresh_analysis_image()
-        self.act_estimate.setEnabled(False)
+        self._set_estimate_enabled(False)
         self.statusBar().showMessage("Estimating period…")
 
         self._thread = QThread()
@@ -257,18 +405,17 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _on_estimate_failed(self, message: str) -> None:
-        self.act_estimate.setEnabled(True)
+        self._set_estimate_enabled(True)
         QMessageBox.critical(self, "Estimation error", message)
         self.statusBar().showMessage("Estimation failed.")
 
     def _on_estimate_done(self, result) -> None:
-        self.act_estimate.setEnabled(True)
+        self._set_estimate_enabled(True)
         self._result = result
         self.badge.set_mode(result.axis_mode)
         self.spin_px.setValue(result.px or 0)
         self.spin_py.setValue(result.py or 0)
-        self.lbl_conf.setText(
-            f"X {result.confidence_x:.0f}%   Y {result.confidence_y:.0f}%")
+        self._update_period_readout()
         self.spectrum.set_spectra(result.spectrum_x, result.spectrum_y)
         self.view.set_grid(result.px, result.py)
         self.view.show_grid(result.axis_mode != "NONE")
